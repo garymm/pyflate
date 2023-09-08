@@ -14,6 +14,8 @@
 # see 'bwt_reverse()'.  Correct output is produced in all test cases
 # but ideally the problem would be found...
 
+from dataclasses import dataclass
+
 class BitfieldBase:
     def __init__(self, x):
         if isinstance(x,BitfieldBase):
@@ -102,18 +104,10 @@ def printbits(v, n):
         v >>= 1
     return o
 
+@dataclass(order=True)
 class HuffmanLength:
-    def __init__(self, code, bits = 0):
-        self.code = code
-        self.bits = bits
-        self.symbol = None
-    def __repr__(self):
-        return repr((self.code, self.bits, self.symbol, self.reverse_symbol))
-    def __cmp__(self, other):
-        if self.bits == other.bits:
-            return cmp(self.code, other.code)
-        else:
-            return cmp(self.bits, other.bits)
+    bits: int
+    code: int
 
 def reverse_bits(v, n):
     a = 1 << 0
@@ -144,7 +138,7 @@ class HuffmanTable:
         for finish, endbits in bootstrap[1:]:
             if bits:
                 for code in range(start, finish):
-                    l.append(HuffmanLength(code, bits))
+                    l.append(HuffmanLength(bits, code))
             start, bits = finish, endbits
             if endbits == -1:
                 break
@@ -195,7 +189,7 @@ class HuffmanTable:
                 field.readbits(x.bits)
                 return x.code
         raise "unfound symbol, even after end of table @ " + repr(field.tell())
-            
+
         for bits in range(self.min_bits, self.max_bits + 1):
             #print printbits(field.snoopbits(bits),bits)
             r = self._find_symbol(bits, field.snoopbits(bits), self.table)
@@ -280,7 +274,7 @@ def bwt_reverse(L, end):
     return out
 
 # Sixteen bits of magic have been removed by the time we start decoding
-def bzip2_main(input):
+def bzip2_main(input: BitfieldBase):
     b = RBitfield(input)
 
     method = b.readbits(8)
@@ -334,7 +328,7 @@ def bzip2_main(input):
             mtf = list(range(huffman_groups))
             selectors_list = []
             for i in range(selectors_used):
-                # zero-terminated bit runs (0..62) of MTF'ed huffman table 
+                # zero-terminated bit runs (0..62) of MTF'ed huffman table
                 c = 0
                 while b.readbits(1):
                     c += 1
@@ -432,7 +426,7 @@ def bzip2_main(input):
                         i += 1
                 out += done
                 #print 'done', `done[:10]`, '..', `done[-10:]`, 'len', len(done)
-            
+
             #raise "Bip2 block support not implemented"
         elif blocktype == 0x177245385090: # sqrt(pi)
             print('bzip2 end-of-stream block')
@@ -443,7 +437,7 @@ def bzip2_main(input):
     return out
 
 # Sixteen bits of magic have been removed by the time we start decoding
-def gzip_main(field):
+def gzip_main(field: BitfieldBase) -> bytearray:
     b = Bitfield(field)
     method = b.readbits(8)
     if method != 8:
@@ -472,7 +466,7 @@ def gzip_main(field):
         b.readbits(16)
 
     #print "gzip header skip", b.tell()
-    out = ''
+    out = bytearray()
 
     #print 'header 0 count 0 bits', b.tellbits()
 
@@ -571,7 +565,7 @@ def gzip_main(field):
                         literal_start = lz_start
                     literal_count += 1
                     #print 'found literal', `chr(r)`
-                    out += chr(r)
+                    out += r.to_bytes(1, byteorder='big')
                 elif r == 256:
                     if literal_count > 0:
                         #print 'add 0 count', literal_count, 'bits', lz_start-literal_start, 'data', `out[-literal_count:]`
@@ -586,7 +580,7 @@ def gzip_main(field):
                     length_extra = b.readbits(extra_length_bits(r))
                     length = length_base(r) + length_extra
                     #print 'dictionary lookup: length', length,
-                    
+
                     r1 = main_distances.find_next_symbol(b)
                     if 0 <= r1 <= 29:
                         distance = distance_base(r1) + b.readbits(extra_distance_bits(r1))
@@ -628,22 +622,20 @@ import sys
 
 def _main():
     filename = sys.argv[1]
-    input = open(filename)
-    field = RBitfield(input)
+    with open(filename, mode='rb') as input:
+        field = RBitfield(input)
 
-    magic = field.readbits(16)
-    if magic == 0x1f8b: # GZip
-        out = gzip_main(field)
-    elif magic == 0x425a: # BZip2
-        out = bzip2_main(field)
-    else:
-        raise "Unknown file magic "+hex(magic)+", not a gzip/bzip2 file"
+        magic = field.readbits(16)
+        if magic == 0x1f8b: # GZip
+            out = gzip_main(field)
+        elif magic == 0x425a: # BZip2
+            out = bzip2_main(field)
+        else:
+            raise "Unknown file magic "+hex(magic)+", not a gzip/bzip2 file"
 
-    f = open('out', 'w')
-    f.write(out)
-    f.close()
-    input.close()
-        
+    with open('out', mode='wb') as f:
+        f.write(out)
+
 if __name__=='__main__':
     if len(sys.argv) != 2:
         program = sys.argv[0]
